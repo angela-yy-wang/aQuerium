@@ -107,10 +107,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.type === "SET_DAILY_LIMIT") {
         const requestedLimit = Number(msg.dailyLimit);
 
-        if (!Number.isFinite(requestedLimit) || requestedLimit < 1) {
+        if (
+            !Number.isFinite(requestedLimit) ||
+            requestedLimit < 1 ||
+            requestedLimit > 50
+        ) {
             sendResponse({
                 ok: false,
-                error: "Please enter a limit of at least 1."
+                error: "Please enter a limit between 1 and 50."
             });
             return;
         }
