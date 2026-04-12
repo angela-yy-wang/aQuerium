@@ -25,5 +25,11 @@
       "js": ["content.js"],
       "css": ["styles.css"]
     }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["fish/goldfish.png","fish/pufferfish.png"],
+      "matches": ["<all_urls>"]
+    }
   ]
 }

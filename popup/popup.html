@@ -1,14 +1,269 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8" />
     <title>aQuerium</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #a9d6f3;
+            --ink: #2a0d10;
+            --ink-soft: #4a2226;
+            --panel: rgba(255, 255, 255, 0.18);
+            --panel-border: #2a0d10;
+            --accent: #2a0d10;
+            --danger: #8d1f1f;
+            --success: #1f5e35;
+        }
+
+        body {
+            margin: 0;
+            width: 320px;
+            height: 480px;
+            overflow: hidden;
+            font-family: "Comic Sans MS", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--ink);
+        }
+
+        .popup {
+            padding: 16px;
+        }
+
+        .logo {
+            display: flex;
+            justify-content: left;
+            margin-bottom: 14px;
+        }
+
+        .logo img {
+            width: 100%;
+            max-width: 40px;
+            height: auto;
+            display: block;
+        }
+
+        .card {
+            background: var(--panel);
+            border: 4px solid var(--panel-border);
+            border-radius: 22px;
+            padding: 12px;
+            margin-bottom: 12px;
+            box-shadow: 0 3px 0 rgba(42, 13, 16, 0.18);
+        }
+
+        .hero {
+            text-align: center;
+        }
+
+        .hero-label {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 6px;
+            color: var(--ink-soft);
+        }
+
+        .hero-value {
+            font-size: 30px;
+            font-weight: 900;
+            line-height: 1;
+            margin-bottom: 10px;
+        }
+
+        .hero-subtext {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .progress-track {
+            width: 100%;
+            height: 18px;
+            border: 4px solid var(--ink);
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.28);
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            width: 0%;
+            background: rgba(42, 13, 16, 0.9);
+            transition: width 0.25s ease;
+        }
+
+        .warning {
+            display: none;
+            margin-top: 10px;
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--danger);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            color: var(--ink-soft);
+        }
+
+        .stat-value {
+            font-size: 22px;
+            font-weight: 900;
+            line-height: 1.1;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 900;
+            margin: 0 0 6px;
+        }
+
+        .section-subtitle {
+            font-size: 12px;
+            font-weight: 700;
+            line-height: 1.4;
+            margin: 0 0 12px;
+            color: var(--ink-soft);
+        }
+
+        label {
+            display: block;
+            font-size: 12px;
+            font-weight: 800;
+            margin-bottom: 6px;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        input[type="number"] {
+            flex: 1;
+            min-width: 0;
+            padding: 10px 12px;
+            border: 4px solid var(--ink);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.65);
+            color: var(--ink);
+            font-size: 16px;
+            font-weight: 800;
+            outline: none;
+        }
+
+        input[type="number"]:focus {
+            background: rgba(255, 255, 255, 0.85);
+        }
+
+        button {
+            border: 4px solid var(--ink);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.65);
+            color: var(--ink);
+            padding: 10px 14px;
+            font-size: 15px;
+            font-weight: 900;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: rgba(255, 255, 255, 0.82);
+        }
+
+        button:disabled,
+        input:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .note {
+            margin-top: 10px;
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--ink-soft);
+            line-height: 1.4;
+        }
+
+        .status {
+            min-height: 18px;
+            margin-top: 10px;
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .status.neutral {
+            color: var(--ink-soft);
+        }
+
+        .status.error {
+            color: var(--danger);
+        }
+
+        .status.success {
+            color: var(--success);
+        }
+    </style>
 </head>
 <body>
-<h3>Aquarium</h3>
+    <div class="popup">
+        <div class="logo">
+            <img src="aquerium_logo.jpeg" alt="aQuerium logo">
+        </div>
 
-<label>Water Level</label>
-<button id="refill">Refill Tank</button>
+        <div class="card hero">
+            <div class="hero-label">Water level</div>
+            <div id="water-level" class="hero-value">--%</div>
+            <div id="hero-subtext" class="hero-subtext">Loading...</div>
 
-<script src="popup.js"></script>
+            <div class="progress-track">
+                <div id="water-progress" class="progress-fill"></div>
+            </div>
+
+            <div id="dead-warning" class="warning">
+                Fish dies at 10% water or lower.
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="card">
+                <div class="stat-label">Queries used</div>
+                <div id="queries-used" class="stat-value">-- / --</div>
+            </div>
+
+            <div class="card">
+                <div class="stat-label">Water used</div>
+                <div id="water-used" class="stat-value">-- mL</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="section-title">Daily query limit</div>
+            <div class="section-subtitle">
+                Pick how many queries you want today. You can change it once per day.
+            </div>
+
+            <label for="daily-limit-input">Today's limit</label>
+            <div class="input-row">
+                <input id="daily-limit-input" type="number" min="1" step="1" />
+                <button id="save-limit-btn">Save</button>
+            </div>
+
+            <div id="limit-note" class="note"></div>
+            <div id="status-msg" class="status neutral"></div>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
 </body>
 </html>
