@@ -130,6 +130,61 @@ function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
 }
 
+function getCurrentAnimationPosition(fish) {
+    if (!fish) {
+        return { left: 0, top: 0 };
+    }
+
+    const animation = fish._swimAnimation;
+    if (!animation) {
+        return {
+            left: parseFloat(fish.style.left || "0") || 0,
+            top: parseFloat(fish.style.top || "0") || 0
+        };
+    }
+
+    const timing = animation.effect?.getTiming?.() || {};
+    const keyframes = fish._pathKeyframes || [];
+    const duration = Number(timing.duration) || 0;
+
+    if (!duration || keyframes.length < 2) {
+        return {
+            left: parseFloat(fish.style.left || "0") || 0,
+            top: parseFloat(fish.style.top || "0") || 0
+        };
+    }
+
+    const currentTime = Number(animation.currentTime) || 0;
+    const progress = clamp(currentTime / duration, 0, 1);
+    const segmentCount = keyframes.length - 1;
+    const scaled = progress * segmentCount;
+    const startIndex = Math.min(segmentCount - 1, Math.floor(scaled));
+    const endIndex = Math.min(segmentCount, startIndex + 1);
+    const localProgress = clamp(scaled - startIndex, 0, 1);
+
+    const start = keyframes[startIndex];
+    const end = keyframes[endIndex];
+
+    const startLeft = parseFloat(start.left) || 0;
+    const endLeft = parseFloat(end.left) || 0;
+    const startTop = parseFloat(start.top) || 0;
+    const endTop = parseFloat(end.top) || 0;
+
+    return {
+        left: startLeft + (endLeft - startLeft) * localProgress,
+        top: startTop + (endTop - startTop) * localProgress
+    };
+}
+
+function syncFishToCurrentAnimationPosition(fish) {
+    const position = getCurrentAnimationPosition(fish);
+    if (!fish) return position;
+
+    fish.style.left = `${position.left}px`;
+    fish.style.top = `${position.top}px`;
+    return position;
+}
+
 // =======================
 // GET FISH POSITION
 // =======================
@@ -162,16 +217,16 @@ function restartFishWithinBounds(fish) {
     const minTop = bounds.minY;
     const maxTop = Math.max(minTop, bounds.maxY - fishHeight);
 
-    const visualPos = getFishVisualPosition(fish);
+    const currentPos = syncFishToCurrentAnimationPosition(fish);
 
     const safeLeft = clamp(
-        visualPos.left,
+        currentPos.left,
         0,
         Math.max(0, tankWidth - fishWidth)
     );
 
     const safeTop = clamp(
-        visualPos.top,
+        currentPos.top,
         minTop,
         maxTop
     );
@@ -185,7 +240,7 @@ function restartFishWithinBounds(fish) {
     fish.style.top = `${safeTop}px`;
     fish.style.opacity = "1";
 
-    const movingRight = !fish.style.transform.includes("scaleX(-1)");
+    const movingRight = (fish._pathDirection || 1) === 1;
     animateFishFromCurrentPosition(fish, movingRight ? 1 : -1);
 }
 
@@ -217,7 +272,7 @@ function keepFishBelowWater() {
         const fishWidth = fish.offsetWidth || 120;
         const fishHeight = fish.offsetHeight || 80;
 
-        const visualPos = getFishVisualPosition(fish);
+        const visualPos = getCurrentAnimationPosition(fish);
 
         const minTop = bounds.minY;
         const maxTop = Math.max(bounds.minY, bounds.maxY - fishHeight);
@@ -660,10 +715,16 @@ function animateFish(fish, direction = 1) {
         fill: "forwards"
     });
 
+    fish._pathKeyframes = keyframes;
+    fish._pathDirection = direction;
     fish._swimAnimation = animation;
 
     animation.onfinish = () => {
         if (fish.dataset.dead === "true") return;
+
+        fish.style.left = `${endLeft}px`;
+        fish.style.top = `${endY}px`;
+
         animateFish(fish, direction * -1);
     };
 }
@@ -702,8 +763,9 @@ function animateFishFromCurrentPosition(fish, direction = 1) {
         return randomBetween(minLeft, maxLeft);
     };
 
-    const startLeft = clamp(parseFloat(fish.style.left || "0"), minLeft, maxLeft);
-    const startY = clamp(parseFloat(fish.style.top || "0"), minTop, maxTop);
+    const currentPos = syncFishToCurrentAnimationPosition(fish);
+    const startLeft = clamp(currentPos.left, minLeft, maxLeft);
+    const startY = clamp(currentPos.top, minTop, maxTop);
 
     let endLeft = randomLeft();
     let endY = randomY();
@@ -746,6 +808,8 @@ function animateFishFromCurrentPosition(fish, direction = 1) {
         fill: "forwards"
     });
 
+    fish._pathKeyframes = keyframes;
+    fish._pathDirection = endLeft >= startLeft ? 1 : -1;
     fish._swimAnimation = animation;
 
     animation.onfinish = () => {
