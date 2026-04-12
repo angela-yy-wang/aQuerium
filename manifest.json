@@ -28,7 +28,8 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["fish/goldfish.png","fish/pufferfish.png"],
+      "resources": ["fish/goldfish.png","fish/pufferfish.png","fish/shark.png","fish/lemonshark.png",
+    "fish/tuna.png","fish/bettafish.png","fish/lionfish.png"],
       "matches": ["<all_urls>"]
     }
   ]
