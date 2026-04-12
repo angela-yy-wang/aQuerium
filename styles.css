@@ -35,6 +35,8 @@
     left: 0;
     top: 0;
     will-change: left, top, transform;
+    opacity: 0;
+    visibility: hidden;
 }
 
 .fish-img {

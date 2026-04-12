@@ -1,13 +1,14 @@
 // =======================
 // CREATE AQUARIUM
 // =======================
+// Builds the aquarium root once, randomly picks 5 fish,
+// and injects the fish + water HTML into the page.
 function createAquarium() {
     if (document.getElementById("aquarium-root")) return;
 
     const root = document.createElement("div");
     root.id = "aquarium-root";
 
-    // all available fish
     const allFish = [
         "fish/goldfish.png",
         "fish/pufferfish.png",
@@ -18,22 +19,26 @@ function createAquarium() {
         "fish/lemonshark.png"
     ];
 
-    // randomly pick 5
     const shuffled = [...allFish].sort(() => Math.random() - 0.5);
     const selectedFish = shuffled.slice(0, 5);
 
-    // build fish html
-    const fishHTML = selectedFish.map((fishPath, index) => {
-        const fishName = fishPath.split("/").pop();
+    const fishHTML = selectedFish
+        .map((fishPath, index) => {
+            const fishName = fishPath.split("/").pop();
 
-        return `
-        <div class="fish fish-${index + 1}" data-fish-name="${fishName}" data-dead="false" style="opacity: 0;">
+            return `
+        <div
+            class="fish fish-${index + 1}"
+            data-fish-name="${fishName}"
+            data-dead="false"
+            data-started="false"
+        >
             <img src="${chrome.runtime.getURL(fishPath)}" class="fish-img" />
         </div>
         `;
-    }).join("");
+        })
+        .join("");
 
-    // final html
     root.innerHTML = `
     <div id="tank">
         <div id="water"></div>
@@ -95,9 +100,8 @@ makeAquariumDraggable();
 // GLOBAL WATER STATE
 // =======================
 let currentWaterLevel = 1.0;
+let aquariumInitialized = false;
 
-// death stages so they only trigger once
-let deathStage30Triggered = false;
 let deathStage10Triggered = false;
 let deathStage0Triggered = false;
 
@@ -112,11 +116,8 @@ function getWaterBounds() {
     }
 
     const tankHeight = tank.clientHeight;
-
-    // top of visible water inside tank
     const waterTop = tankHeight * (1 - currentWaterLevel);
 
-    // small padding so fish do not clip through border/surface
     const topPadding = 10;
     const bottomPadding = 10;
 
@@ -130,65 +131,10 @@ function clamp(value, min, max) {
     return Math.min(Math.max(value, min), max);
 }
 
-function getCurrentAnimationPosition(fish) {
-    if (!fish) {
-        return { left: 0, top: 0 };
-    }
-
-    const animation = fish._swimAnimation;
-    if (!animation) {
-        return {
-            left: parseFloat(fish.style.left || "0") || 0,
-            top: parseFloat(fish.style.top || "0") || 0
-        };
-    }
-
-    const timing = animation.effect?.getTiming?.() || {};
-    const keyframes = fish._pathKeyframes || [];
-    const duration = Number(timing.duration) || 0;
-
-    if (!duration || keyframes.length < 2) {
-        return {
-            left: parseFloat(fish.style.left || "0") || 0,
-            top: parseFloat(fish.style.top || "0") || 0
-        };
-    }
-
-    const currentTime = Number(animation.currentTime) || 0;
-    const progress = clamp(currentTime / duration, 0, 1);
-    const segmentCount = keyframes.length - 1;
-    const scaled = progress * segmentCount;
-    const startIndex = Math.min(segmentCount - 1, Math.floor(scaled));
-    const endIndex = Math.min(segmentCount, startIndex + 1);
-    const localProgress = clamp(scaled - startIndex, 0, 1);
-
-    const start = keyframes[startIndex];
-    const end = keyframes[endIndex];
-
-    const startLeft = parseFloat(start.left) || 0;
-    const endLeft = parseFloat(end.left) || 0;
-    const startTop = parseFloat(start.top) || 0;
-    const endTop = parseFloat(end.top) || 0;
-
-    return {
-        left: startLeft + (endLeft - startLeft) * localProgress,
-        top: startTop + (endTop - startTop) * localProgress
-    };
-}
-
-function syncFishToCurrentAnimationPosition(fish) {
-    const position = getCurrentAnimationPosition(fish);
-    if (!fish) return position;
-
-    fish.style.left = `${position.left}px`;
-    fish.style.top = `${position.top}px`;
-    return position;
-}
 
 // =======================
 // GET FISH POSITION
 // =======================
-
 function getFishVisualPosition(fish) {
     const tank = document.getElementById("tank");
     if (!tank || !fish) {
@@ -204,45 +150,6 @@ function getFishVisualPosition(fish) {
     };
 }
 
-function restartFishWithinBounds(fish) {
-    const tank = document.getElementById("tank");
-    if (!tank || !fish) return;
-    if (fish.dataset.dead === "true") return;
-
-    const tankWidth = tank.clientWidth;
-    const fishWidth = fish.offsetWidth || 120;
-    const fishHeight = fish.offsetHeight || 120;
-
-    const bounds = getWaterBounds();
-    const minTop = bounds.minY;
-    const maxTop = Math.max(minTop, bounds.maxY - fishHeight);
-
-    const currentPos = syncFishToCurrentAnimationPosition(fish);
-
-    const safeLeft = clamp(
-        currentPos.left,
-        0,
-        Math.max(0, tankWidth - fishWidth)
-    );
-
-    const safeTop = clamp(
-        currentPos.top,
-        minTop,
-        maxTop
-    );
-
-    if (fish._swimAnimation) {
-        fish._swimAnimation.cancel();
-        fish._swimAnimation = null;
-    }
-
-    fish.style.left = `${safeLeft}px`;
-    fish.style.top = `${safeTop}px`;
-    fish.style.opacity = "1";
-
-    const movingRight = (fish._pathDirection || 1) === 1;
-    animateFishFromCurrentPosition(fish, movingRight ? 1 : -1);
-}
 
 // =======================
 // UPDATE WATER LEVEL
@@ -254,44 +161,88 @@ function updateWater(level) {
     currentWaterLevel = clamp(level ?? 1, 0, 1);
     water.style.height = `${currentWaterLevel * 100}%`;
 
+    if (!aquariumInitialized) {
+        return;
+    }
+
     keepFishBelowWater();
     applyDeathStages();
 }
 
+
+// =======================
+// KEEP FISH BELOW WATER
+// =======================
 function keepFishBelowWater() {
     const fishes = document.querySelectorAll(".fish");
     const tank = document.getElementById("tank");
     if (!tank) return;
 
     const bounds = getWaterBounds();
-    const tankWidth = tank.clientWidth;
 
     fishes.forEach((fish) => {
         if (fish.dataset.dead === "true") return;
+        if (fish.dataset.started !== "true") return;
 
-        const fishWidth = fish.offsetWidth || 120;
-        const fishHeight = fish.offsetHeight || 80;
-
-        const visualPos = getCurrentAnimationPosition(fish);
+        const fishHeight = fish.offsetHeight || 120;
+        const visualPos = getFishVisualPosition(fish);
 
         const minTop = bounds.minY;
         const maxTop = Math.max(bounds.minY, bounds.maxY - fishHeight);
-        const minLeft = 0;
-        const maxLeft = Math.max(0, tankWidth - fishWidth);
 
-        const isOutOfBounds =
-            visualPos.top < minTop ||
-            visualPos.top > maxTop ||
-            visualPos.left < minLeft ||
-            visualPos.left > maxLeft;
+        const tolerance = 4;
 
-        // only intervene when the fish is actually outside the valid area
-        if (isOutOfBounds) {
-            restartFishWithinBounds(fish);
+        const isVerticallyOutOfBounds =
+            visualPos.top < minTop - tolerance ||
+            visualPos.top > maxTop + tolerance;
+
+        if (isVerticallyOutOfBounds) {
+            adjustFishVerticalPositionOnly(fish, minTop, maxTop);
         }
     });
 
     layoutDeadFish();
+}
+
+
+// =======================
+// VERTICAL-ONLY CORRECTION
+// =======================
+function adjustFishVerticalPositionOnly(fish, minTop, maxTop) {
+    const tank = document.getElementById("tank");
+    if (!tank || !fish) return;
+    if (fish.dataset.dead === "true") return;
+    if (fish.dataset.started !== "true") return;
+
+    const tankWidth = tank.clientWidth;
+    const fishWidth = fish.offsetWidth || 120;
+
+    const visualPos = getFishVisualPosition(fish);
+
+    const safeLeft = clamp(
+        visualPos.left,
+        -fishWidth - 40,
+        tankWidth + fishWidth + 40
+    );
+
+    const safeTop = clamp(visualPos.top, minTop, maxTop);
+
+    if (fish._swimAnimation) {
+        fish._swimAnimation.cancel();
+        fish._swimAnimation = null;
+    }
+
+    fish.style.left = `${safeLeft}px`;
+    fish.style.top = `${safeTop}px`;
+    fish.style.visibility = "visible";
+    fish.style.opacity = "1";
+
+    const movingRight = (fish._pathDirection || 1) === 1;
+
+    animateFishFromCurrentPosition(fish, movingRight, {
+        left: safeLeft,
+        top: safeTop
+    });
 }
 
 
@@ -309,23 +260,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     updateWater(changes.waterLevel.newValue);
 });
 
-// =======================
-// FISH POSITIONS
-// =======================
-function getFishVisualPosition(fish) {
-    const tank = document.getElementById("tank");
-    if (!tank || !fish) {
-        return { left: 0, top: 0 };
-    }
-
-    const tankRect = tank.getBoundingClientRect();
-    const fishRect = fish.getBoundingClientRect();
-
-    return {
-        left: fishRect.left - tankRect.left,
-        top: fishRect.top - tankRect.top
-    };
-}
 
 // =======================
 // PROMPT DETECTION
@@ -360,90 +294,10 @@ setInterval(() => {
     }
 }, 2000);
 
-// // =======================
-// // SET FISH DIRECTION
-// // =======================
-// // Flips the fish horizontally depending on movement direction
-// // movingRight = true  → face right
-// // movingRight = false → face left
-// function setFishFacing(fish, movingRight) {
-//     fish.style.transform = movingRight ? "scaleX(1)" : "scaleX(-1)";
-// }
 
-
-// // =======================
-// // MAIN FISH ANIMATION (constant bob no-lagging version)
-// // =======================
-// // Simpler and lighter:
-// // - slow left/right movement
-// // - only a small amount of vertical variation
-// // - keeps fish under water
-// // - less animation work, so less lag
-// function animateFish(fish, direction = 1) {
-//     const tank = document.getElementById("tank");
-//     if (!tank || !fish) return;
-
-//     // cancel previous swim animation so only one runs per fish
-//     if (fish._swimAnimation) {
-//         fish._swimAnimation.cancel();
-//     }
-
-//     const tankWidth = tank.clientWidth;
-//     const fishWidth = fish.offsetWidth || 120;
-//     const fishHeight = fish.offsetHeight || 120;
-
-//     const bounds = getWaterBounds();
-//     const minTop = bounds.minY;
-//     const maxTop = Math.max(minTop, bounds.maxY - fishHeight);
-
-//     // choose one base underwater height
-//     const baseY =
-//         maxTop <= minTop
-//             ? minTop
-//             : minTop + Math.random() * (maxTop - minTop);
-
-//     // very small vertical drift only
-//     const driftAmount = 12;
-//     const midY = clamp(baseY + (Math.random() * driftAmount * 2 - driftAmount), minTop, maxTop);
-//     const endY = clamp(baseY + (Math.random() * driftAmount * 2 - driftAmount), minTop, maxTop);
-
-//     // slower movement
-//     const duration = 18000 + Math.random() * 6000;
-
-//     const startLeft = direction === 1 ? -fishWidth - 20 : tankWidth;
-//     const endLeft = direction === 1 ? tankWidth : -fishWidth - 20;
-
-//     setFishFacing(fish, direction === 1);
-
-//     // place fish at its real starting point before animating
-//     fish.style.left = `${startLeft}px`;
-//     fish.style.top = `${baseY}px`;
-
-//     const animation = fish.animate(
-//         [
-//             { left: `${startLeft}px`, top: `${baseY}px` },
-//             { left: `${tankWidth * 0.5}px`, top: `${midY}px` },
-//             { left: `${endLeft}px`, top: `${endY}px` }
-//         ],
-//         {
-//             duration,
-//             iterations: 1,
-//             easing: "linear",
-//             fill: "forwards"
-//         }
-//     );
-
-//     fish._swimAnimation = animation;
-
-//     animation.onfinish = () => {
-//         animateFish(fish, direction * -1);
-//     };
-// }
-
-
-//=======================
-// SET FISH DIRECTION (RANDOMISED MOVEMENT/BOB)
-//=======================
+// =======================
+// SET FISH DIRECTION
+// =======================
 function setFishFacing(fish, movingRight) {
     if (fish.dataset.dead === "true") {
         return;
@@ -452,8 +306,9 @@ function setFishFacing(fish, movingRight) {
     fish.style.transform = movingRight ? "scaleX(1)" : "scaleX(-1)";
 }
 
+
 // =======================
-// RANDOM HELPER
+// RANDOM HELPERS
 // =======================
 function randomBetween(min, max) {
     return min + Math.random() * (max - min);
@@ -493,6 +348,10 @@ function getDeadFishPath(fish) {
     return `fish/dead_${fishName}`;
 }
 
+
+// =======================
+// DEAD FISH LAYOUT
+// =======================
 function layoutDeadFish() {
     const tank = document.getElementById("tank");
     const deadFish = getDeadFish();
@@ -557,13 +416,13 @@ function layoutDeadFish() {
             fish.style.top = `${top}px`;
             fish.style.bottom = "auto";
             fish.style.opacity = "1";
+            fish.style.visibility = "visible";
             fish.style.zIndex = "1";
 
             currentX += width + effectiveGap;
         });
     }
 
-    // floating dead fish sit at the water surface
     const surfaceY = Math.max(
         0,
         tankHeight * (1 - currentWaterLevel) - surfaceOffset
@@ -573,6 +432,10 @@ function layoutDeadFish() {
     layoutGroup(bottomDeadFish, "bottom");
 }
 
+
+// =======================
+// FISH DEATH
+// =======================
 function killFish(fish, mode = "float") {
     if (!fish || fish.dataset.dead === "true") return;
 
@@ -601,7 +464,6 @@ function killFish(fish, mode = "float") {
         };
     }
 
-    // stop bobbing once dead
     img.style.animation = "none";
 
     layoutDeadFish();
@@ -624,6 +486,12 @@ function killAllRemainingFish(mode = "bottom") {
     });
 }
 
+
+// =======================
+// WATER-BASED DEATH STAGES
+// =======================
+// below 10% -> kill 2 fish floating
+// at 0%     -> kill all remaining on bottom
 function applyDeathStages() {
     if (currentWaterLevel <= 0 && !deathStage0Triggered) {
         deathStage0Triggered = true;
@@ -635,12 +503,8 @@ function applyDeathStages() {
         deathStage10Triggered = true;
         killRandomFish(2, "float");
     }
-
-    if (currentWaterLevel < 0.3 && !deathStage30Triggered) {
-        deathStage30Triggered = true;
-        killRandomFish(1, "float");
-    }
 }
+
 
 // =======================
 // MAIN FISH ANIMATION
@@ -649,6 +513,8 @@ function animateFish(fish, direction = 1) {
     const tank = document.getElementById("tank");
     if (!tank || !fish) return;
     if (fish.dataset.dead === "true") return;
+
+    fish.dataset.started = "true";
 
     if (fish._swimAnimation) {
         fish._swimAnimation.cancel();
@@ -662,43 +528,36 @@ function animateFish(fish, direction = 1) {
     const minTop = bounds.minY;
     const maxTop = Math.max(minTop, bounds.maxY - fishHeight);
 
-    const minLeft = 0;
-    const maxLeft = Math.max(0, tankWidth - fishWidth);
-
     const randomY = () => {
         if (maxTop <= minTop) return minTop;
         return randomBetween(minTop, maxTop);
     };
 
-    const randomLeft = () => {
-        if (maxLeft <= minLeft) return minLeft;
-        return randomBetween(minLeft, maxLeft);
-    };
+    const offscreenPadding = fishWidth + 30;
+
+    const startLeft = direction === 1
+        ? -offscreenPadding
+        : tankWidth + offscreenPadding;
+
+    const endLeft = direction === 1
+        ? tankWidth + offscreenPadding
+        : -offscreenPadding;
+
+    const midLeft1 = startLeft + (endLeft - startLeft) * 0.33;
+    const midLeft2 = startLeft + (endLeft - startLeft) * 0.66;
 
     const startY = randomY();
     const midY1 = randomY();
     const midY2 = randomY();
     const endY = randomY();
 
-    const startLeft =
-        direction === 1 ? randomBetween(minLeft, maxLeft * 0.25) : randomBetween(maxLeft * 0.75, maxLeft);
-
-    const midLeft1 =
-        direction === 1 ? randomBetween(maxLeft * 0.2, maxLeft * 0.45) : randomBetween(maxLeft * 0.55, maxLeft * 0.8);
-
-    const midLeft2 =
-        direction === 1 ? randomBetween(maxLeft * 0.45, maxLeft * 0.7) : randomBetween(maxLeft * 0.3, maxLeft * 0.55);
-
-    const endLeft =
-        direction === 1 ? randomBetween(maxLeft * 0.7, maxLeft) : randomBetween(minLeft, maxLeft * 0.3);
-
     const duration = randomBetween(18000, 28000);
 
     setFishFacing(fish, direction === 1);
 
-    // place fish before showing it
     fish.style.left = `${startLeft}px`;
     fish.style.top = `${startY}px`;
+    fish.style.visibility = "visible";
     fish.style.opacity = "1";
 
     const keyframes = [
@@ -729,14 +588,20 @@ function animateFish(fish, direction = 1) {
     };
 }
 
-// =======================
-// RESTART FISH IF WATER LEVEL CHANGES MID ANIMATION
-// =======================
 
-function animateFishFromCurrentPosition(fish, direction = 1) {
+// =======================
+// CONTINUE PATH FROM CURRENT POSITION
+// =======================
+function animateFishFromCurrentPosition(
+    fish,
+    movingRight = true,
+    startPosition = null
+) {
     const tank = document.getElementById("tank");
     if (!tank || !fish) return;
     if (fish.dataset.dead === "true") return;
+
+    fish.dataset.started = "true";
 
     if (fish._swimAnimation) {
         fish._swimAnimation.cancel();
@@ -750,48 +615,38 @@ function animateFishFromCurrentPosition(fish, direction = 1) {
     const minTop = bounds.minY;
     const maxTop = Math.max(minTop, bounds.maxY - fishHeight);
 
-    const minLeft = 0;
-    const maxLeft = Math.max(0, tankWidth - fishWidth);
+    const currentPos = startPosition || getFishVisualPosition(fish);
+
+    const offscreenPadding = fishWidth + 30;
+    const minLeft = -offscreenPadding;
+    const maxLeft = tankWidth + offscreenPadding;
+
+    const startLeft = clamp(currentPos.left, minLeft, maxLeft);
+    const startY = clamp(currentPos.top, minTop, maxTop);
+
+    const endLeft = movingRight
+        ? tankWidth + offscreenPadding
+        : -offscreenPadding;
+
+    const midLeft1 = startLeft + (endLeft - startLeft) * 0.33;
+    const midLeft2 = startLeft + (endLeft - startLeft) * 0.66;
 
     const randomY = () => {
         if (maxTop <= minTop) return minTop;
         return randomBetween(minTop, maxTop);
     };
 
-    const randomLeft = () => {
-        if (maxLeft <= minLeft) return minLeft;
-        return randomBetween(minLeft, maxLeft);
-    };
-
-    const currentPos = syncFishToCurrentAnimationPosition(fish);
-    const startLeft = clamp(currentPos.left, minLeft, maxLeft);
-    const startY = clamp(currentPos.top, minTop, maxTop);
-
-    let endLeft = randomLeft();
-    let endY = randomY();
-
-    let tries = 0;
-    while (
-        tries < 8 &&
-        Math.abs(endLeft - startLeft) < 40 &&
-        Math.abs(endY - startY) < 20
-    ) {
-        endLeft = randomLeft();
-        endY = randomY();
-        tries++;
-    }
-
-    const midLeft1 = clamp(startLeft + (endLeft - startLeft) * 0.33, minLeft, maxLeft);
-    const midLeft2 = clamp(startLeft + (endLeft - startLeft) * 0.66, minLeft, maxLeft);
     const midY1 = randomY();
     const midY2 = randomY();
+    const endY = randomY();
 
-    const duration = randomBetween(14000, 22000);
+    const duration = randomBetween(10000, 16000);
 
-    setFishFacing(fish, endLeft >= startLeft);
+    setFishFacing(fish, movingRight);
 
     fish.style.left = `${startLeft}px`;
     fish.style.top = `${startY}px`;
+    fish.style.visibility = "visible";
     fish.style.opacity = "1";
 
     const keyframes = [
@@ -809,7 +664,7 @@ function animateFishFromCurrentPosition(fish, direction = 1) {
     });
 
     fish._pathKeyframes = keyframes;
-    fish._pathDirection = endLeft >= startLeft ? 1 : -1;
+    fish._pathDirection = movingRight ? 1 : -1;
     fish._swimAnimation = animation;
 
     animation.onfinish = () => {
@@ -818,22 +673,30 @@ function animateFishFromCurrentPosition(fish, direction = 1) {
         fish.style.left = `${endLeft}px`;
         fish.style.top = `${endY}px`;
 
-        animateFish(fish, endLeft >= startLeft ? 1 : -1);
+        animateFish(fish, movingRight ? -1 : 1);
     };
 }
+
 
 // =======================
 // SAFE START
 // =======================
 setTimeout(() => {
     const fishes = document.querySelectorAll(".fish");
+    let startedCount = 0;
 
     fishes.forEach((fish, index) => {
         const direction = index % 2 === 0 ? 1 : -1;
 
-        // slight stagger so they do not all line up
         setTimeout(() => {
             animateFish(fish, direction);
+
+            startedCount += 1;
+            if (startedCount === fishes.length) {
+                aquariumInitialized = true;
+                keepFishBelowWater();
+                applyDeathStages();
+            }
         }, index * 250);
     });
 }, 150);
