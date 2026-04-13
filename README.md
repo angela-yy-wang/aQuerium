@@ -1,4 +1,4 @@
-# aQuerium 🐠
+# aQuerium
 
 > *Query-osity killed the fish.*
 
